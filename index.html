@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="輸入兩個數字，立即算出總和。">
+  <title>加法計算機</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100svh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: #edf4f2;
+      color: #17332e;
+      font: 1rem/1.5 system-ui, sans-serif;
+    }
+    main {
+      width: min(100%, 28rem);
+      background: white;
+      border: 1px solid #c6dcd6;
+      border-radius: 24px;
+      box-shadow: 0 20px 50px #1c534314;
+      padding: clamp(20px, 6vw, 36px);
+    }
+    h1 { margin: 0 0 24px; font-size: 1.85rem; }
+    form, label { display: grid; gap: 8px; }
+    form { gap: 16px; }
+    label { font-weight: 600; }
+    input, button { font: inherit; border-radius: 12px; min-height: 48px; }
+    input { width: 100%; padding: 10px 14px; border: 1px solid #79968e; color: inherit; }
+    button { background: #145845; border: 0; color: white; font-weight: 700; cursor: pointer; }
+    button:hover { background: #0e4536; }
+    :focus-visible { outline: 3px solid #18795f; outline-offset: 3px; }
+    .result { padding: 14px 16px; margin: 20px 0 0; background: #e6f3ee; border-radius: 12px; }
+    output { display: block; font-size: 1.5rem; font-weight: 700; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>加法計算機</h1>
+    <form>
+      <label>第一個數字
+        <input id="first" inputmode="decimal" maxlength="100" required>
+      </label>
+      <label>第二個數字
+        <input id="second" inputmode="decimal" maxlength="100" required>
+      </label>
+      <button type="submit">計算總和</button>
+    </form>
+    <p class="result">結果 <output for="first second" aria-live="polite">—</output></p>
+  </main>
+  <script>
+    const form = document.querySelector('form');
+    const inputs = [...form.querySelectorAll('input')];
+    const output = document.querySelector('output');
+    const decimal = /^[+-]?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)$/;
+
+    function addDecimals(values) {
+      const parts = values.map(value => value.replace(',', '.').split('.'));
+      const places = Math.max(...parts.map(([, fraction = '']) => fraction.length));
+      const [first, second] = parts.map(([whole, fraction = '']) =>
+        BigInt(whole + fraction.padEnd(places, '0'))
+      );
+      const total = first + second;
+      const digits = (total < 0n ? -total : total).toString().padStart(places + 1, '0');
+      const whole = digits.slice(0, digits.length - places);
+      const fraction = digits.slice(digits.length - places).replace(/0+$/, '');
+      return (total < 0n ? '-' : '') + whole + (fraction ? '.' + fraction : '');
+    }
+
+    form.addEventListener('input', event => {
+      event.target.setCustomValidity('');
+      output.value = '—';
+    });
+
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const values = inputs.map(input => input.value.trim());
+      const invalid = inputs.find((input, index) => !decimal.test(values[index]));
+      if (invalid) {
+        invalid.setCustomValidity('請輸入整數或小數。');
+        invalid.reportValidity();
+        return;
+      }
+      output.value = addDecimals(values);
+    });
+  </script>
+</body>
+</html>
