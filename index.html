@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="輸入兩個數字，立即算出總和。">
-  <title>加法計算機</title>
+  <meta name="description" content="選擇難度，看看你能在 60 秒內答對幾道加法題。">
+  <title>60 秒加法挑戰</title>
   <style>
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       margin: 0;
       min-height: 100svh;
       display: grid;
       place-items: center;
-      padding: 20px;
+      padding: 16px;
       background: #edf4f2;
       color: #17332e;
       font: 1rem/1.5 system-ui, sans-serif;
@@ -23,69 +24,156 @@
       border: 1px solid #c6dcd6;
       border-radius: 24px;
       box-shadow: 0 20px 50px #1c534314;
-      padding: clamp(20px, 6vw, 36px);
+      padding: clamp(16px, 5vw, 32px);
     }
-    h1 { margin: 0 0 24px; font-size: 1.85rem; }
-    form, label { display: grid; gap: 8px; }
-    form { gap: 16px; }
+    h1 { margin: 0 0 16px; font-size: clamp(1.5rem, 7vw, 2rem); }
+    form, label, section { display: grid; gap: 10px; }
     label { font-weight: 600; }
-    input, button { font: inherit; border-radius: 12px; min-height: 48px; }
-    input { width: 100%; padding: 10px 14px; border: 1px solid #79968e; color: inherit; }
-    button { background: #145845; border: 0; color: white; font-weight: 700; cursor: pointer; }
+    input, select, button { font: inherit; border-radius: 12px; min-height: 48px; }
+    input, select { width: 100%; min-width: 0; padding: 8px 12px; border: 1px solid #79968e; background: white; color: inherit; }
+    button { width: 100%; padding: 8px 12px; background: #145845; border: 0; color: white; font-weight: 700; cursor: pointer; }
     button:hover { background: #0e4536; }
     :focus-visible { outline: 3px solid #18795f; outline-offset: 3px; }
-    .result { padding: 14px 16px; margin: 20px 0 0; background: #e6f3ee; border-radius: 12px; }
-    output { display: block; font-size: 1.5rem; font-weight: 700; overflow-wrap: anywhere; }
+    .round-info {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 4px 12px;
+      padding: 8px 12px;
+      background: #e6f3ee;
+      border-radius: 12px;
+    }
+    #seconds, #question { font-variant-numeric: tabular-nums; }
+    #question { text-align: center; font-size: clamp(2rem, 10vw, 3rem); font-weight: 750; }
+    #feedback { min-height: 1.5em; margin: 0; }
+    .result { margin: 0; font-size: 1.75rem; }
   </style>
 </head>
 <body>
   <main>
-    <h1>加法計算機</h1>
-    <form>
-      <label>第一個數字
-        <input id="first" inputmode="decimal" maxlength="100" required>
-      </label>
-      <label>第二個數字
-        <input id="second" inputmode="decimal" maxlength="100" required>
-      </label>
-      <button type="submit">計算總和</button>
+    <h1>60 秒加法挑戰</h1>
+    <form id="setup">
+      <label for="difficulty">難度</label>
+      <select id="difficulty">
+        <option value="basic">基礎・0～10 ＋ 0～10</option>
+        <option value="advanced">進階・0～10 ＋ 11～20</option>
+        <option value="challenge">挑戰・11～20 ＋ 11～20</option>
+      </select>
+      <button type="submit">開始挑戰</button>
     </form>
-    <p class="result">結果 <output for="first second" aria-live="polite">—</output></p>
+    <section id="round" hidden aria-label="作答區">
+      <div class="round-info">
+        <span id="level"></span>
+        <span role="timer">剩餘 <strong id="seconds">60</strong> 秒</span>
+      </div>
+      <form id="answer-form" novalidate>
+        <div id="question" aria-live="polite"></div>
+        <label for="answer">答案</label>
+        <input id="answer" type="text" inputmode="numeric" autocomplete="off"
+          enterkeyhint="send" aria-describedby="question feedback" required>
+        <button type="submit">送出</button>
+        <p id="feedback" role="status"></p>
+      </form>
+    </section>
+    <section id="summary" hidden>
+      <h2 id="result" class="result" tabindex="-1"></h2>
+      <button id="replay" type="button">再玩一次</button>
+    </section>
   </main>
   <script>
-    const form = document.querySelector('form');
-    const inputs = [...form.querySelectorAll('input')];
-    const output = document.querySelector('output');
-    const decimal = /^[+-]?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)$/;
+    const ranges = {
+      basic: [[0, 10], [0, 10]],
+      advanced: [[0, 10], [11, 20]],
+      challenge: [[11, 20], [11, 20]],
+    };
+    const setup = document.getElementById('setup');
+    const difficulty = document.getElementById('difficulty');
+    const round = document.getElementById('round');
+    const level = document.getElementById('level');
+    const seconds = document.getElementById('seconds');
+    const question = document.getElementById('question');
+    const form = document.getElementById('answer-form');
+    const answer = document.getElementById('answer');
+    const feedback = document.getElementById('feedback');
+    const summary = document.getElementById('summary');
+    const result = document.getElementById('result');
+    const replay = document.getElementById('replay');
+    let deadline = null;
+    let interval;
+    let correct = 0;
+    let sum;
+    let roundRanges;
 
-    function addDecimals(values) {
-      const parts = values.map(value => value.replace(',', '.').split('.'));
-      const places = Math.max(...parts.map(([, fraction = '']) => fraction.length));
-      const [first, second] = parts.map(([whole, fraction = '']) =>
-        BigInt(whole + fraction.padEnd(places, '0'))
+    function nextQuestion() {
+      const [left, right] = roundRanges.map(([min, max]) =>
+        min + Math.floor(Math.random() * (max - min + 1))
       );
-      const total = first + second;
-      const digits = (total < 0n ? -total : total).toString().padStart(places + 1, '0');
-      const whole = digits.slice(0, digits.length - places);
-      const fraction = digits.slice(digits.length - places).replace(/0+$/, '');
-      return (total < 0n ? '-' : '') + whole + (fraction ? '.' + fraction : '');
+      sum = left + right;
+      question.textContent = `${left} ＋ ${right} ＝ ?`;
+      answer.value = '';
+      answer.removeAttribute('aria-invalid');
     }
 
-    form.addEventListener('input', event => {
-      event.target.setCustomValidity('');
-      output.value = '—';
+    function updateClock() {
+      if (deadline === null) return false;
+
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      seconds.textContent = remaining;
+      if (remaining > 0) return true;
+
+      clearInterval(interval);
+      deadline = null;
+      round.hidden = true;
+      result.textContent = `答對 ${correct} 題`;
+      summary.hidden = false;
+      result.focus();
+      return false;
+    }
+
+    setup.addEventListener('submit', event => {
+      event.preventDefault();
+      if (setup.hidden) return;
+
+      roundRanges = ranges[difficulty.value];
+      level.textContent = difficulty.selectedOptions[0].textContent.split('・')[0];
+      correct = 0;
+      feedback.textContent = '';
+      nextQuestion();
+      setup.hidden = true;
+      seconds.textContent = '60';
+      round.hidden = false;
+      deadline = Date.now() + 60_000;
+      interval = setInterval(updateClock, 200);
+      answer.focus();
     });
 
     form.addEventListener('submit', event => {
       event.preventDefault();
-      const values = inputs.map(input => input.value.trim());
-      const invalid = inputs.find((input, index) => !decimal.test(values[index]));
-      if (invalid) {
-        invalid.setCustomValidity('請輸入整數或小數。');
-        invalid.reportValidity();
+      if (!updateClock()) return;
+
+      const value = answer.value.trim();
+      if (!/^\d+$/.test(value)) {
+        feedback.textContent = '請輸入整數。';
+        answer.setAttribute('aria-invalid', 'true');
+        answer.focus();
         return;
       }
-      output.value = addDecimals(values);
+
+      const isCorrect = Number(value) === sum;
+      if (isCorrect) correct += 1;
+      feedback.textContent = isCorrect ? '答對了！' : `正確答案是 ${sum}。`;
+      nextQuestion();
+      answer.focus();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) updateClock();
+    });
+
+    replay.addEventListener('click', () => {
+      summary.hidden = true;
+      setup.hidden = false;
+      difficulty.focus();
     });
   </script>
 </body>
